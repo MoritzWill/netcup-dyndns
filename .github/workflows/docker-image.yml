@@ -29,4 +29,4 @@ jobs:
           push: true
           context: .
           tags: |
-            ghcr.io/MoritzWill/docker-netcup-ddns:latest
+            ghcr.io/moritzwill/docker-netcup-ddns:latest
