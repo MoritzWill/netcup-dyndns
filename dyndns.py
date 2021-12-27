@@ -99,8 +99,6 @@ def dyndns(conf, hosts, update: bool=False, ttl: int=None, verbose: bool=False):
     Please review your config in hosts.json, this script will NOT check the sanity of your dns entries.
     !!!
     """
-     while true:
-        time.sleep(3)
         if verbose:
             logging.basicConfig(level=logging.DEBUG)
     
@@ -174,5 +172,4 @@ def dyndns(conf, hosts, update: bool=False, ttl: int=None, verbose: bool=False):
                     print("records did not change, leaving it alone!")
 
 
-    if __name__ == "__main__":
         dyndns()
