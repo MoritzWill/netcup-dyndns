@@ -17,6 +17,8 @@ from ipaddress import IPv4Address
 
 import click
 
+import time
+
 from nc_api import NcAPI, DNSRecord, DNSRecordSet
 from nc_api.utils.external_ip import ExternalIpify, ExternalFritzbox
 
@@ -97,78 +99,80 @@ def dyndns(conf, hosts, update: bool=False, ttl: int=None, verbose: bool=False):
     Please review your config in hosts.json, this script will NOT check the sanity of your dns entries.
     !!!
     """
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
+     while true:
+        time.sleep(3)
+        if verbose:
+            logging.basicConfig(level=logging.DEBUG)
+    
+        logging.debug(f"settings path:\t{conf}")
+        logging.debug(f"hosts path:\t{hosts}")
+        logging.debug(f"update:\t{update}")
+        logging.debug(f"ttl:\t{ttl}")
 
-    logging.debug(f"settings path:\t{conf}")
-    logging.debug(f"hosts path:\t{hosts}")
-    logging.debug(f"update:\t{update}")
-    logging.debug(f"ttl:\t{ttl}")
+        # read settings from file
+        with open(conf) as fp:
+            settings = json.load(fp)
+        logging.debug(f"settings from file:\t{settings}")
 
-    # read settings from file
-    with open(conf) as fp:
-        settings = json.load(fp)
-    logging.debug(f"settings from file:\t{settings}")
+        # get external ip
+        fritzbox_ip = settings.get("FRITZBOX_IP")
+        if fritzbox_ip is not None:
+            logging.debug(f"getting external ip via FRITZ!Box API on {fritzbox_ip}")
+            ip = ExternalFritzbox(fritzbox_ip).ip
+        else:
+            logging.debug(f"getting external ip via ipify API")
+            ip = ExternalIpify().ip
+        if ip is None:
+            logging.error(f"unable to find external ip")
+            return
+        print(f"found external ip:\t{ip}")
 
-    # get external ip
-    fritzbox_ip = settings.get("FRITZBOX_IP")
-    if fritzbox_ip is not None:
-        logging.debug(f"getting external ip via FRITZ!Box API on {fritzbox_ip}")
-        ip = ExternalFritzbox(fritzbox_ip).ip
-    else:
-        logging.debug(f"getting external ip via ipify API")
-        ip = ExternalIpify().ip
-    if ip is None:
-        logging.error(f"unable to find external ip")
-        return
-    print(f"found external ip:\t{ip}")
+        # import domain name from file
+        domainname = import_zone(filename=hosts)
+        print(f"working on domain:\t{domainname}")
 
-    # import domain name from file
-    domainname = import_zone(filename=hosts)
-    print(f"working on domain:\t{domainname}")
+        # import hosts from file
+        new_set = import_hosts(filename=hosts, ip=ip)
 
-    # import hosts from file
-    new_set = import_hosts(filename=hosts, ip=ip)
+        # api related part
+        with NcAPI(api_url=settings["API_URL"],
+                api_key=settings["API_KEY"],
+                api_password=settings["API_PASSWORD"],
+                customer_id=settings["CUSTOMER_ID"]) as api:
+            # read current dns zone
+            zone = api.infoDnsZone(domainname=domainname)
+            print(zone.table())
 
-    # api related part
-    with NcAPI(api_url=settings["API_URL"],
-               api_key=settings["API_KEY"],
-               api_password=settings["API_PASSWORD"],
-               customer_id=settings["CUSTOMER_ID"]) as api:
-        # read current dns zone
-        zone = api.infoDnsZone(domainname=domainname)
-        print(zone.table())
+            # read current host records
+            old_set = api.infoDnsRecords(domainname=domainname)
+            print(old_set.table())
 
-        # read current host records
-        old_set = api.infoDnsRecords(domainname=domainname)
-        print(old_set.table())
+            # modify set
+            updated_set, changed = modify_recordset(old_set=old_set, new_set=new_set)
+            print("\nupdated set:")
+            print(updated_set.table())
 
-        # modify set
-        updated_set, changed = modify_recordset(old_set=old_set, new_set=new_set)
-        print("\nupdated set:")
-        print(updated_set.table())
+            if ttl is not None:
+                print("updating ttl ...")
+                if zone.ttl == ttl:
+                    print("ttl has not changed, leaving it alone!")
+                else:
+                    zone.ttl = ttl
+                    api.updateDnsZone(zone=zone)
 
-        if ttl is not None:
-            print("updating ttl ...")
-            if zone.ttl == ttl:
-                print("ttl has not changed, leaving it alone!")
-            else:
-                zone.ttl = ttl
-                api.updateDnsZone(zone=zone)
+                    # read zone again
+                    print(api.infoDnsZone(domainname=domainname).table())
 
-                # read zone again
-                print(api.infoDnsZone(domainname=domainname).table())
+            if update:
+                print("\n updating records ...")
+                if changed:
+                    api.updateDnsRecords(zone=zone, recordset=updated_set)
 
-        if update:
-            print("\n updating records ...")
-            if changed:
-                api.updateDnsRecords(zone=zone, recordset=updated_set)
-
-                # read current host records
-                print(api.infoDnsRecords(domainname=domainname).table())
-            else:
-                print("records did not change, leaving it alone!")
+                    # read current host records
+                    print(api.infoDnsRecords(domainname=domainname).table())
+                else:
+                    print("records did not change, leaving it alone!")
 
 
-if __name__ == "__main__":
-    dyndns()
+    if __name__ == "__main__":
+        dyndns()
