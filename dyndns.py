@@ -172,4 +172,4 @@ def dyndns(conf, hosts, update: bool=False, ttl: int=None, verbose: bool=False):
                     print("records did not change, leaving it alone!")
 
 
-        dyndns()
+        dyndns(conf, hosts, update, ttl, verbose)
